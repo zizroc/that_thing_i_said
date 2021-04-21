@@ -1,0 +1,338 @@
+---
+title: "Off-label usage of R6 class"
+author: "Marcus Thomson"
+date: "4/19/2021"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(tidyverse)
+library(docstring)
+```
+
+## R6
+
+The [R6 package](https://cran.r-project.org/web/packages/R6/index.html) brings encapsulated classes with reference semantics to R. Classes will be familiar to those of you used to other languages, such as Python. A class is like a template used to create objects. Learning how to use them is useful for anyone who wants more control over their workflow, especially if you are moving from data science into programming.
+
+This was my experience having used R to build the Iterative Eden Project model (guts and all). I found that I was limited with the kind of structures I was used to from straightforward functional programming and scripting, and encapsualted classes added a lot of options for design and portability. In short, base R is powerful for statistics; packages improve its math and visualization abilities; dplyr and the tidyverse vastly streamlined its grammar; R6 cracks open the door for R as a programming language.
+
+```{r}
+# install.packages("R6")
+library(R6)
+```
+
+# Basic R6 class structure
+
+In R, an R6 class can be defined as follows:
+
+```{r}
+base_thing <- R6::R6Class(
+  "base_thing", 
+  list(
+    variable1 = NA, 
+    data = data.frame()
+  ))
+```
+
+This looks like:
+
+```{r}
+base_thing
+```
+
+The `base_thing` class is an "object generator". This is like a blueprint. To make use of it, you will need to create an instance of the class as an object, using the constructor, viz.,
+
+```{r}
+object_1 <- base_thing$new()
+object_1
+```
+
+Now you have an object of class `base_thing` living in your system's memory. This object contains a variable and an empty data frame. You can access them using `$`:
+
+```{r}
+object_1$variable1
+```
+
+You can assign some value to this variable:
+
+```{r}
+object_1$variable1 <- 0.5
+
+object_1$variable1
+```
+
+And this value can be of any type, such as a character string:
+
+```{r}
+object_1$variable1 <- "hello_you!"
+
+object_1$variable1
+```
+
+# Inheritance
+
+A useful feature of R6 classes is inheritance. You can use this to create whole families of classes to suit your needs.
+
+```{r}
+derived_thing <- R6::R6Class(
+  "derived_thing", 
+  inherit = base_thing, 
+  list(
+    variable2 = NA
+  ))
+```
+
+The class `derived_thing` is like a daughter of `base_thing`. Let's apply the constructor again to make another object, `object_2`, an instance of the `derived_thing` class:
+
+```{r}
+object_2 <- derived_thing$new()
+object_2
+```
+
+The `object_2` contains two variables, yet only `variable2` was defined in the `derived_thing` class. 
+
+```{r}
+object_1
+object_2
+```
+
+Comparing the base and derived classes, we see that `variable1` was defined in the base class but not in the derived class. Instead, it was inherited from the base class and into the derived class.
+
+But these are just variables. What about functions? This is when class structures really begin to shine. 
+
+Let's make a `second_derived_thing` object class that inherits from the derived class (and therefore automatically from the base class). In this case, let's not add any more variables but a couple of methods:
+
+* one that adds variables together; and 
+* one that appends to the data frame defined in the base class by binding new rows to the existing data frame.
+
+NB: Ignore the `time` variable for the moment. It will be used next, but also goes to illustrate that you can populate classes with unused variables without them getting upset with you.
+
+```{r}
+second_derived_thing <- R6::R6Class(
+  "second_derived_thing", 
+  inherit = derived_thing, 
+  list(
+    time = NA, 
+    var_sum = NA, 
+    sum_vars = function() {
+      self$var_sum <- self$variable1 + self$variable2
+    }, 
+    rbind_data = function() {
+      df <- data.frame(
+        time = self$time, 
+        variable1 = self$variable1, 
+        variable2 = self$variable2, 
+        var_sum = self$var_sum
+      ) 
+      self$data = self$data %>% 
+        dplyr::bind_rows(df)
+    }
+  )
+)
+```
+
+Now make a new instance of the `second_derived_thing` class, called `object_3`. `object_3` contains two variables and a data frame, inherited from the base and derive classes, but also two functions that are defined in the second_derived_thing class itself.
+
+```{r}
+object_3 <- second_derived_thing$new()
+object_3
+```
+
+# Orthodox use
+
+Now we can start assigning values to the object's variables. 
+
+```{r}
+object_3$variable1 <- runif(1, 0, 1)
+object_3$variable2 <- runif(1, 0, 1)
+
+object_3
+```
+
+If you want to pull the values from these variables, you can do so.
+
+```{r}
+object_3$variable1
+```
+
+Assign these values to other variables as you would normally.
+
+```{r}
+x <- object_3$variable1
+x
+```
+
+But we can also use the same syntax to call a function.
+
+```{r}
+object_3$sum_vars()
+object_3$var_sum
+```
+
+We just assigned the variables separate numerical values, and applied the function `object_3$sum_vars()` to add these together. 
+
+In addition, the code `self$var_sum <- self$variable1 + self$variable2` assigns this sum internally to the `var_sum` variable. So we now have values for all three variables defined in `object_3`:
+
+```{r}
+object_3
+```
+
+But as it stands, assigning new values to any of these variables will just overwrite them. So we use the second function defined in `second_derived_thing`, the `...rbind_data()` function, to add these values as a row to the empty data frame we added for just this purpose:
+
+```{r}
+object_3$rbind_data()
+object_3$data
+
+```
+
+We now have an object that contains variables, functions, and a data frame container for whatever results it produces.
+
+This is useful for a few reasons that come to mind, such as if you have need to organize your data in a process. I find it especially useful to use an object that evolves in time. Let's try this with some dummy data that I've generated in a loop, so it's clear what's going on:
+
+```{r}
+object <- second_derived_thing$new()
+for(time in c(1:10)) {
+  object$time <- time
+  object$variable1 <- runif(1, 0, 1) 
+  object$variable2 <- runif(1, -1, 0)
+  object$sum_vars()
+  object$rbind_data()
+}
+df <- object$data
+df
+```
+
+```{r}
+p0 <- ggplot(df, 
+       aes(x = time))
+p1 <- p0 + 
+  geom_hline(yintercept = 0) + 
+  geom_line(aes(y = variable1), 
+            color = "red") + 
+  geom_line(aes(y = variable2), 
+            color = "violet") + 
+  geom_line(aes(y = var_sum), 
+            linetype = 4, 
+            size = 1.5) + 
+  theme_minimal() + 
+  labs(
+    title = "Something time dependent", 
+    subtitle = "Source: data contained in the object", 
+    x = "time", 
+    y = "some value"
+  )
+
+p1
+```
+
+The object accumulated values within the container. But they only live in an instance of the class, not anywhere else. If we try to look for the function `sum_vars` we get an error:
+
+```{r, error = TRUE}
+sum_vars
+```
+
+The function `sum_vars` is not defined in your working environment, only within the object's local environment.
+
+```{r}
+object$sum_vars
+```
+
+In this, it works a little like the name-space of a package, e.g., R6::some_function, or that's how I think about it.
+
+This can be useful if you are: 
+
+* using a large number of functions that you don't want to load into the same environment at once; and/or
+* dealing with complicated interdependence issues between functions.
+
+# Off-label use: toolbox of functions
+
+I presently have use of many functions that do similar things, just to different sets of objects. It's important that I don't mix them up, so I use a class structure (similar to what follows) to keep them better organized.
+
+```{r}
+list_of_functions = R6::R6Class(
+  "list_of_functions", 
+  list(
+    add_stuff = function(x1, x2) {
+      return(x1 + x2)
+    }, 
+    subtract_stuff = function(x1, x2) {
+      return(x2 - x1)
+    }, 
+    modulo = function(x1) {
+      #' modulo
+      #' @description Finds the result of a number modulo 10.
+      return(x1 %% 10)
+    }
+  )
+)
+```
+
+Run a constructor to instantiate your list of functions class as an object, e.g., `fun_list_1`:
+
+```{r}
+fun_list_1 <- list_of_functions$new()
+fun_list_1
+```
+
+Access your functions like this:
+
+```{r}
+fun_list_1$add_stuff(20, 40)
+fun_list_1$subtract_stuff(20, 40)
+```
+
+But what if you have functions with the same name/ID? Just bundle them in different class structures, like I've done with the `modulo` function here:
+
+```{r}
+another_list_of_functions = R6::R6Class(
+  "another_list_of_functions", 
+  list(
+    modulo = function(x1) {
+      #' modulo
+      #' @description Finds the result of a number modulo 2.
+      return(x1 %% 2)
+    }
+  )
+)
+```
+
+Run constructor to make a new objects, `fun_list_2`.
+
+```{r}
+fun_list_2 <- another_list_of_functions$new()
+fun_list_2
+```
+
+Recall that `modulo` makes no sense here:
+```{r, error = TRUE}
+modulo
+```
+
+It only exists in the object instances of each class. Alternatively stated, this means you can access different functions even though they have the same name:
+
+```{r}
+fun_list_1$modulo
+fun_list_2$modulo
+```
+
+And with arguments, they give different results (as they should):
+
+```{r}
+fun_list_1$modulo(2)
+fun_list_2$modulo(2)
+```
+
+# Documentation
+
+If you want to look at the documentation, you can use the `docstring` package. But note that you must first instantiate the class as an object, here as something I've called `modulo`.
+```{r}
+modulo <- fun_list_1$modulo
+docstring(modulo)
+```
+
+Now try again what I did above, and you'll see the function described:
+```{r}
+modulo
+```
+
